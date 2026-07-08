@@ -1,0 +1,17 @@
+{
+  "name": "FollowFrame",
+  "short_name": "FollowFrame",
+  "description": "Windows desktop media wall for followed-account content.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#0b0d0b",
+  "theme_color": "#0b0d0b",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
