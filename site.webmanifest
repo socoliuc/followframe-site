@@ -1,7 +1,7 @@
 {
   "name": "FollowFrame",
   "short_name": "FollowFrame",
-  "description": "Windows desktop media wall for followed-account content.",
+  "description": "Independent Instagram desktop frame for Windows.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#0b0d0b",
