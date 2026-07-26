@@ -23,7 +23,8 @@
           <li><strong>Instagram session:</strong> when you choose Connect account, Instagram loads in an embedded browser window. Session cookies and related browser storage remain in a persistent Electron partition for the current Windows user.</li>
           <li><strong>Followed content:</strong> the app reads media URLs and related display metadata from the followed Instagram pages loaded in that local session so it can build the wall. The app connects directly to Instagram and the content hosts used by Instagram.</li>
           <li><strong>Local preferences and cache:</strong> playback settings, window state, the current media queue, and capture diagnostics are stored in the app data folder for the current Windows user.</li>
-          <li><strong>Runtime diagnostics:</strong> local event logs use safe item fingerprints and redact URL-like values. FollowFrame does not transmit these logs as desktop telemetry.</li>
+          <li><strong>Runtime diagnostics:</strong> local event logs use safe item fingerprints and redact URL-like values. FollowFrame does not transmit these logs.</li>
+          <li><strong>Optional active-use count:</strong> disabled by default. If you enable it in Settings, the app sends a random installation ID, FollowFrame version, and Windows/x64 at most once per day. It does not include an Instagram account, media, URLs, local paths, or diagnostics. Disabling the setting deletes the local anonymous ID.</li>
         </ul>
       </section>
 
@@ -39,7 +40,9 @@
 
       <section>
         <h2>Website analytics</h2>
-        <p>Followframe.com loads Google Analytics only when the site is configured with a public GA4 measurement ID and you select Allow. When enabled, it records a page view and generic download, outbound-link, and support-link events. It does not send Instagram account names, media URLs, local paths, cookies from the desktop app, or desktop telemetry. You can review or withdraw this choice through Analytics settings in the website footer.</p>
+        <p>Followframe.com loads visitor-side Google Analytics only after you select Allow. When enabled, it records a page view and generic download, outbound-link, and support-link events. You can review or withdraw this choice through Analytics settings in the website footer.</p>
+        <p>The first-party download server separately reports a generic event after it finishes sending a complete FollowFrame EXE. It does not send the visitor's IP address, cookies, or a persistent visitor identifier to Google Analytics. Partial range requests and checksum downloads are not counted as completed downloads.</p>
+        <p>If desktop active-use sharing is enabled, the first-party server replaces the random installation ID with a one-way keyed pseudonymous identifier before sending an <code>app_active</code> event to Google Analytics. The server does not persist the submitted random ID.</p>
       </section>
 
       <section>
@@ -49,7 +52,7 @@
 
       <section>
         <h2>Policy questions</h2>
-        <p>For privacy or support questions, use the publisher contact shown on FollowFrame's Microsoft Store listing when it becomes available. Until then, the current project and release information is maintained at <a href="https://followframe.com/">followframe.com</a>.</p>
+        <p>For privacy or support questions, use the current project and release information maintained at <a href="https://followframe.com/">followframe.com</a>.</p>
       </section>
 
       <p class="updated">Effective and last updated: July 26, 2026.</p>

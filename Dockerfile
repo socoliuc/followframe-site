@@ -1,10 +1,17 @@
-FROM nginx:1.27-alpine
+FROM node:26-alpine
 
-COPY index.html /usr/share/nginx/html/index.html
-COPY assets /usr/share/nginx/html/assets
-COPY downloads /usr/share/nginx/html/downloads
-COPY screenshots /usr/share/nginx/html/screenshots
-COPY og /usr/share/nginx/html/og
-COPY privacy /usr/share/nginx/html/privacy
-COPY app-icon.png favicon.svg google9b59e4c5f5a8c8b0.html robots.txt sitemap.xml site.webmanifest /usr/share/nginx/html/
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
+COPY index.html /app/public/index.html
+COPY assets /app/public/assets
+COPY downloads /app/public/downloads
+COPY screenshots /app/public/screenshots
+COPY og /app/public/og
+COPY privacy /app/public/privacy
+COPY app-icon-128.webp app-icon.png favicon.svg google9b59e4c5f5a8c8b0.html robots.txt sitemap.xml site.webmanifest /app/public/
+COPY production-server.ts /app/production-server.ts
+
+ENV PORT=3000
+ENV STATIC_ROOT=/app/public
+EXPOSE 3000
+
+CMD ["node", "production-server.ts"]
