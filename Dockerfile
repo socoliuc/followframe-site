@@ -10,8 +10,8 @@ COPY privacy /app/public/privacy
 COPY app-icon-128.webp app-icon.png favicon.svg google9b59e4c5f5a8c8b0.html robots.txt sitemap.xml site.webmanifest /app/public/
 COPY production-server.ts /app/production-server.ts
 
-ENV PORT=3000
+ENV PORT=80
 ENV STATIC_ROOT=/app/public
-EXPOSE 3000
+EXPOSE 80
 
 CMD ["node", "production-server.ts"]
