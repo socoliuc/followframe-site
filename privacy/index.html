@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index,follow" />
+    <meta name="description" content="FollowFrame privacy policy for the Windows desktop app and followframe.com website." />
+    <link rel="canonical" href="https://followframe.com/privacy/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Privacy policy | FollowFrame</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0b0f16; color: #f5f7fb; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; background: radial-gradient(circle at top left, #172335 0, #0b0f16 42rem); }
+      main { width: min(780px, calc(100% - 40px)); margin: 0 auto; padding: 56px 0 80px; }
+      a { color: #72f5c6; }
+      .back { display: inline-flex; margin-bottom: 48px; font-weight: 700; text-decoration: none; }
+      .eyebrow { margin: 0 0 10px; color: #72f5c6; font-size: .8rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(2.5rem, 8vw, 4.8rem); line-height: .98; letter-spacing: -.055em; }
+      .lede { margin: 24px 0 48px; color: #c3ccda; font-size: 1.16rem; line-height: 1.7; }
+      section { margin-top: 36px; padding: 26px 28px; border: 1px solid #293446; border-radius: 18px; background: rgba(18, 24, 34, .9); }
+      h2 { margin: 0 0 14px; font-size: 1.28rem; }
+      p, li { color: #c3ccda; line-height: 1.72; }
+      ul { margin: 0; padding-left: 22px; }
+      li + li { margin-top: 10px; }
+      strong { color: #fff; }
+      .updated { margin-top: 44px; color: #8e9aab; font-size: .92rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">&larr; Back to FollowFrame</a>
+      <p class="eyebrow">FollowFrame / Windows</p>
+      <h1>Privacy policy</h1>
+      <p class="lede">FollowFrame is a local-first Windows desktop utility. It does not operate a FollowFrame account service or upload your Instagram login, media wall, or desktop diagnostics to a FollowFrame server.</p>
+
+      <section>
+        <h2>Desktop app data</h2>
+        <ul>
+          <li><strong>Instagram session:</strong> when you choose Connect account, Instagram loads in an embedded browser window. Session cookies and related browser storage remain in a persistent Electron partition for the current Windows user.</li>
+          <li><strong>Followed content:</strong> the app reads media URLs and related display metadata from the followed Instagram pages loaded in that local session so it can build the wall. The app connects directly to Instagram and the content hosts used by Instagram.</li>
+          <li><strong>Local preferences and cache:</strong> playback settings, window state, the current media queue, and capture diagnostics are stored in the app data folder for the current Windows user.</li>
+          <li><strong>Runtime diagnostics:</strong> local event logs use safe item fingerprints and redact URL-like values. FollowFrame does not transmit these logs as desktop telemetry.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>How data is used</h2>
+        <p>The desktop app uses this data only to keep you signed in to the embedded source session, capture the followed content you request, play the local wall, remember your settings, and diagnose local runtime behavior. FollowFrame does not sell personal information or use desktop-app data for advertising.</p>
+      </section>
+
+      <section>
+        <h2>Retention and controls</h2>
+        <p>Local settings, browser storage, cached wall data, and diagnostics remain on the Windows device until they are cleared. Use <strong>Logout</strong> in FollowFrame to clear the embedded Instagram session and wall cache. You can also remove remaining FollowFrame app data through Windows after uninstalling the app.</p>
+      </section>
+
+      <section>
+        <h2>Website analytics</h2>
+        <p>Followframe.com loads Google Analytics only when the site is configured with a public GA4 measurement ID and you select Allow. When enabled, it records a page view and generic download, outbound-link, and support-link events. It does not send Instagram account names, media URLs, local paths, cookies from the desktop app, or desktop telemetry. You can review or withdraw this choice through Analytics settings in the website footer.</p>
+      </section>
+
+      <section>
+        <h2>External services</h2>
+        <p>Instagram and PayPal process data under their own privacy terms when you use their services. FollowFrame is independent and is not affiliated with, endorsed by, or sponsored by Instagram or Meta.</p>
+      </section>
+
+      <section>
+        <h2>Policy questions</h2>
+        <p>For privacy or support questions, use the publisher contact shown on FollowFrame's Microsoft Store listing when it becomes available. Until then, the current project and release information is maintained at <a href="https://followframe.com/">followframe.com</a>.</p>
+      </section>
+
+      <p class="updated">Effective and last updated: July 26, 2026.</p>
+    </main>
+  </body>
+</html>
