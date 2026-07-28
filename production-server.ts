@@ -69,6 +69,30 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.end(`${JSON.stringify(value)}\n`);
 }
 
+function canonicalRedirectLocation(request: IncomingMessage, requestUrl: URL): string | null {
+  const forwardedHost = request.headers["x-forwarded-host"];
+  const rawHost = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ?? request.headers.host ?? "";
+  const host = rawHost.split(",", 1)[0].trim().toLowerCase().replace(/:\d+$/, "");
+  if (host !== "followframe.com" && host !== "www.followframe.com") return null;
+
+  const forwardedProto = request.headers["x-forwarded-proto"];
+  const proto = ((Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ?? "http")
+    .split(",", 1)[0]
+    .trim()
+    .toLowerCase();
+  if (host === "followframe.com" && proto === "https") return null;
+
+  return `https://followframe.com${requestUrl.pathname}${requestUrl.search}`;
+}
+
+function sendCanonicalRedirect(response: ServerResponse, location: string): void {
+  applySecurityHeaders(response);
+  response.statusCode = 308;
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("Location", location);
+  response.end();
+}
+
 function parseHeartbeat(value: unknown): HeartbeatPayload | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -305,6 +329,12 @@ export function createProductionServer(options: ServerOptions): Server {
   return createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const requestUrl = new URL(request.url ?? "/", "http://localhost");
+
+    const redirectLocation = canonicalRedirectLocation(request, requestUrl);
+    if (redirectLocation) {
+      sendCanonicalRedirect(response, redirectLocation);
+      return;
+    }
 
     if (requestUrl.pathname === "/api/health" && method === "GET") {
       sendJson(response, 200, { status: "ok", analyticsConfigured });
