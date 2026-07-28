@@ -1,0 +1,5 @@
+Contact: mailto:security@followframe.com
+Canonical: https://followframe.com/.well-known/security.txt
+Preferred-Languages: en
+Policy: https://followframe.com/support/
+Expires: 2027-07-28T00:00:00.000Z

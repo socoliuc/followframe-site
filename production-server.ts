@@ -4,11 +4,11 @@ import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createMetricStore } from "./metrics.ts";
 
 const DEFAULT_PORT = 3000;
 const MAX_HEARTBEAT_BYTES = 2_048;
 const MAX_HEARTBEATS_PER_MINUTE = 120;
-const HEARTBEAT_DEDUP_MS = 20 * 60 * 60 * 1_000;
 const DOWNLOAD_NAME_PATTERN = /^FollowFrame-Single-Exe-(\d+\.\d+\.\d+)-win32-x64\.exe$/;
 const INSTALLATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
@@ -21,10 +21,13 @@ const CONTENT_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".mp4": "video/mp4",
   ".png": "image/png",
   ".sha256": "text/plain; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
   ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".webm": "video/webm",
   ".webp": "image/webp",
   ".xml": "application/xml; charset=utf-8",
 };
@@ -46,6 +49,7 @@ type ServerOptions = {
   telemetryHashSecret?: string;
   fetchImpl?: FetchLike;
   now?: () => number;
+  metricsDatabasePath?: string;
 };
 
 type HeartbeatPayload = {
@@ -132,6 +136,10 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 function analyticsClientId(value: string, secret: string): string {
   const digest = createHmac("sha256", secret).update(value).digest();
   return `${digest.readUInt32BE(0)}.${digest.readUInt32BE(4)}`;
+}
+
+function telemetryDigest(value: string, secret: string): string {
+  return createHmac("sha256", secret).update(value).digest("hex");
 }
 
 async function sendAnalyticsEvent({
@@ -309,7 +317,9 @@ export function createProductionServer(options: ServerOptions): Server {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const analyticsConfigured = Boolean(options.measurementId && options.apiSecret && options.telemetryHashSecret);
-  const recentHeartbeats = new Map<string, number>();
+  const metricsDatabasePath = options.metricsDatabasePath ?? ":memory:";
+  const metricsPersistenceConfigured = metricsDatabasePath !== ":memory:";
+  const metricStore = createMetricStore(metricsDatabasePath);
   let heartbeatWindowStartedAt = now();
   let heartbeatWindowCount = 0;
 
@@ -328,6 +338,7 @@ export function createProductionServer(options: ServerOptions): Server {
   }
 
   function onCompletedDownload(fileName: string, version: string, fileSize: number): void {
+    metricStore.recordCompletedDownload(version, now());
     emitAnalytics(analyticsClientId(randomUUID(), options.telemetryHashSecret!), "file_download_completed", {
       file_name: fileName,
       file_extension: "exe",
@@ -338,7 +349,7 @@ export function createProductionServer(options: ServerOptions): Server {
     });
   }
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
@@ -349,7 +360,7 @@ export function createProductionServer(options: ServerOptions): Server {
     }
 
     if (requestUrl.pathname === "/api/health" && method === "GET") {
-      sendJson(response, 200, { status: "ok", analyticsConfigured });
+      sendJson(response, 200, { status: "ok", analyticsConfigured, metricsPersistenceConfigured });
       return;
     }
 
@@ -386,9 +397,8 @@ export function createProductionServer(options: ServerOptions): Server {
 
       if (analyticsConfigured) {
         const clientId = analyticsClientId(payload.installationId, options.telemetryHashSecret!);
-        const lastHeartbeatAt = recentHeartbeats.get(clientId) ?? 0;
-        if (now() - lastHeartbeatAt >= HEARTBEAT_DEDUP_MS) {
-          recentHeartbeats.set(clientId, now());
+        const digest = telemetryDigest(payload.installationId, options.telemetryHashSecret!);
+        if (metricStore.recordActiveInstallation(digest, payload.version, now())) {
           emitAnalytics(clientId, "app_active", {
             app_version: payload.version,
             operating_system: "Windows",
@@ -417,6 +427,8 @@ export function createProductionServer(options: ServerOptions): Server {
 
     await serveStaticFile({ request, response, staticRoot: options.staticRoot, onCompletedDownload });
   });
+  server.once("close", () => metricStore.close());
+  return server;
 }
 
 function startProductionServer(): void {
@@ -427,6 +439,7 @@ function startProductionServer(): void {
     measurementId: process.env.GA_MEASUREMENT_ID,
     apiSecret: process.env.GA_API_SECRET,
     telemetryHashSecret: process.env.TELEMETRY_HASH_SECRET,
+    metricsDatabasePath: process.env.METRICS_DB_PATH ?? "/app/data/followframe-metrics.sqlite",
   });
   productionServer.listen(port, "0.0.0.0", () => {
     console.log(`FollowFrame site listening on port ${port}`);
