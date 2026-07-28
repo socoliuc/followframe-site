@@ -85,7 +85,7 @@ function canonicalRedirectLocation(request: IncomingMessage, requestUrl: URL): s
   return `https://followframe.com${requestUrl.pathname}${requestUrl.search}`;
 }
 
-function sendCanonicalRedirect(response: ServerResponse, location: string): void {
+function sendPermanentRedirect(response: ServerResponse, location: string): void {
   applySecurityHeaders(response);
   response.statusCode = 308;
   response.setHeader("Cache-Control", "no-store");
@@ -248,6 +248,18 @@ async function serveStaticFile({
     return;
   }
 
+  if (fileStat.isDirectory() && !requestUrl.pathname.endsWith("/")) {
+    try {
+      const indexStat = await stat(resolve(filePath, "index.html"));
+      if (indexStat.isFile()) {
+        sendPermanentRedirect(response, `${requestUrl.pathname}/${requestUrl.search}`);
+        return;
+      }
+    } catch {
+      // Directories without an index remain a normal not-found response.
+    }
+  }
+
   if (!fileStat.isFile()) {
     sendJson(response, 404, { error: "not_found" });
     return;
@@ -332,7 +344,7 @@ export function createProductionServer(options: ServerOptions): Server {
 
     const redirectLocation = canonicalRedirectLocation(request, requestUrl);
     if (redirectLocation) {
-      sendCanonicalRedirect(response, redirectLocation);
+      sendPermanentRedirect(response, redirectLocation);
       return;
     }
 
