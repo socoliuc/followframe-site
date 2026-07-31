@@ -1,9 +1,9 @@
 {
-  "version": "0.3.5",
-  "publishedAt": "2026-07-31T12:17:42.566Z",
-  "downloadUrl": "https://followframe.com/downloads/FollowFrame-Single-Exe-0.3.5-win32-x64.exe",
-  "checksum": "0188DA50258667ED7450516EB91B5768580DFF28C99CCB514048EDD556C8DE62",
-  "byteSize": 93046301,
+  "version": "0.3.6",
+  "publishedAt": "2026-07-31T13:06:56.605Z",
+  "downloadUrl": "https://followframe.com/downloads/FollowFrame-Single-Exe-0.3.6-win32-x64.exe",
+  "checksum": "C14037C48B9E026D4B613C9E40AAFF6F25DA146289D0D45AB358F97C95EA8EB2",
+  "byteSize": 93046488,
   "notesUrl": "https://followframe.com/updates/",
   "architecture": "Windows x64",
   "minimumWindows": "Windows 10"
