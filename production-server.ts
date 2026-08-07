@@ -1,15 +1,15 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, type Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { extname, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMetricStore } from "./metrics.ts";
+import { createMetricStore, type DownloadKind, type DownloadOutcome, type MetricStore } from "./metrics.ts";
 
 const DEFAULT_PORT = 3000;
 const MAX_HEARTBEAT_BYTES = 2_048;
 const MAX_HEARTBEATS_PER_MINUTE = 120;
-const DOWNLOAD_NAME_PATTERN = /^FollowFrame-Single-Exe-(\d+\.\d+\.\d+)-win32-x64\.exe$/;
+const DOWNLOAD_FILE_PATTERN = /^FollowFrame-Single-Exe-(\d+\.\d+\.\d+)-win32-x64\.exe(\.sha256)?$/;
 const INSTALLATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
@@ -41,6 +41,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 type FetchLike = typeof fetch;
+type StatLike = (path: string) => Promise<Stats>;
 
 type ServerOptions = {
   staticRoot: string;
@@ -50,6 +51,8 @@ type ServerOptions = {
   fetchImpl?: FetchLike;
   now?: () => number;
   metricsDatabasePath?: string;
+  metricStore?: MetricStore;
+  statImpl?: StatLike;
 };
 
 type HeartbeatPayload = {
@@ -234,12 +237,16 @@ async function serveStaticFile({
   request,
   response,
   staticRoot,
-  onCompletedDownload,
+  onDownloadStarted,
+  onDownloadOutcome,
+  statImpl,
 }: {
   request: IncomingMessage;
   response: ServerResponse;
   staticRoot: string;
-  onCompletedDownload: (fileName: string, version: string, fileSize: number) => void;
+  onDownloadStarted: (kind: DownloadKind, version: string) => void;
+  onDownloadOutcome: (kind: DownloadKind, outcome: DownloadOutcome, fileName: string, version: string, fileSize: number) => void;
+  statImpl: StatLike;
 }): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const filePath = staticFilePath(staticRoot, requestUrl.pathname);
@@ -250,7 +257,7 @@ async function serveStaticFile({
 
   let fileStat;
   try {
-    fileStat = await stat(filePath);
+    fileStat = await statImpl(filePath);
   } catch {
     sendJson(response, 404, { error: "not_found" });
     return;
@@ -258,7 +265,7 @@ async function serveStaticFile({
 
   if (fileStat.isDirectory() && !requestUrl.pathname.endsWith("/")) {
     try {
-      const indexStat = await stat(resolve(filePath, "index.html"));
+      const indexStat = await statImpl(resolve(filePath, "index.html"));
       if (indexStat.isFile()) {
         sendPermanentRedirect(response, `${requestUrl.pathname}/${requestUrl.search}`);
         return;
@@ -306,11 +313,34 @@ async function serveStaticFile({
     return;
   }
 
-  const downloadMatch = DOWNLOAD_NAME_PATTERN.exec(requestUrl.pathname.split("/").at(-1) ?? "");
-  if (downloadMatch) {
-    response.once("finish", () => onCompletedDownload(downloadMatch[0], downloadMatch[1], fileStat.size));
+  const downloadMatch = DOWNLOAD_FILE_PATTERN.exec(basename(filePath));
+  if (!downloadMatch) {
+    createReadStream(filePath).pipe(response);
+    return;
   }
-  createReadStream(filePath).pipe(response);
+
+  const kind: DownloadKind = downloadMatch[2] ? "checksum" : "exe";
+  const fileName = downloadMatch[0];
+  const version = downloadMatch[1];
+  if (response.destroyed) {
+    return;
+  }
+  let terminalOutcomeRecorded = false;
+  const recordOutcome = (outcome: DownloadOutcome) => {
+    if (terminalOutcomeRecorded) return;
+    terminalOutcomeRecorded = true;
+    onDownloadOutcome(kind, outcome, fileName, version, fileStat.size);
+  };
+
+  onDownloadStarted(kind, version);
+  response.once("finish", () => recordOutcome("completed"));
+  response.once("close", () => recordOutcome("interrupted"));
+  const stream = createReadStream(filePath);
+  stream.once("error", (error) => {
+    recordOutcome("failed");
+    response.destroy(error);
+  });
+  stream.pipe(response);
 }
 
 export function createProductionServer(options: ServerOptions): Server {
@@ -319,7 +349,7 @@ export function createProductionServer(options: ServerOptions): Server {
   const analyticsConfigured = Boolean(options.measurementId && options.apiSecret && options.telemetryHashSecret);
   const metricsDatabasePath = options.metricsDatabasePath ?? ":memory:";
   const metricsPersistenceConfigured = metricsDatabasePath !== ":memory:";
-  const metricStore = createMetricStore(metricsDatabasePath);
+  const metricStore = options.metricStore ?? createMetricStore(metricsDatabasePath);
   let heartbeatWindowStartedAt = now();
   let heartbeatWindowCount = 0;
 
@@ -338,7 +368,14 @@ export function createProductionServer(options: ServerOptions): Server {
   }
 
   function onCompletedDownload(fileName: string, version: string, fileSize: number): void {
-    metricStore.recordCompletedDownload(version, now());
+    try {
+      metricStore.recordCompletedDownload(version, now());
+    } catch (error) {
+      console.error("FollowFrame download metric persistence failed", error);
+    }
+    if (!analyticsConfigured) {
+      return;
+    }
     emitAnalytics(analyticsClientId(randomUUID(), options.telemetryHashSecret!), "file_download_completed", {
       file_name: fileName,
       file_extension: "exe",
@@ -347,6 +384,17 @@ export function createProductionServer(options: ServerOptions): Server {
       engagement_time_msec: 1,
       session_id: Math.floor(Date.now() / 1_000),
     });
+  }
+
+  function onDownloadOutcome(kind: DownloadKind, outcome: DownloadOutcome, fileName: string, version: string, fileSize: number): void {
+    try {
+      metricStore.recordDownloadOutcome(kind, outcome, version, now());
+    } catch (error) {
+      console.error("FollowFrame download metric persistence failed", error);
+    }
+    if (kind === "exe" && outcome === "completed") {
+      onCompletedDownload(fileName, version, fileSize);
+    }
   }
 
   const server = createServer(async (request, response) => {
@@ -360,7 +408,13 @@ export function createProductionServer(options: ServerOptions): Server {
     }
 
     if (requestUrl.pathname === "/api/health" && method === "GET") {
-      sendJson(response, 200, { status: "ok", analyticsConfigured, metricsPersistenceConfigured });
+      const day = new Date(now()).toISOString().slice(0, 10);
+      sendJson(response, 200, {
+        status: "ok",
+        analyticsConfigured,
+        metricsPersistenceConfigured,
+        downloadDelivery: { day, ...metricStore.readDownloadDelivery(day) },
+      });
       return;
     }
 
@@ -425,7 +479,20 @@ export function createProductionServer(options: ServerOptions): Server {
       return;
     }
 
-    await serveStaticFile({ request, response, staticRoot: options.staticRoot, onCompletedDownload });
+    await serveStaticFile({
+      request,
+      response,
+      staticRoot: options.staticRoot,
+      onDownloadStarted: (kind, version) => {
+        try {
+          metricStore.recordDownloadStarted(kind, version, now());
+        } catch (error) {
+          console.error("FollowFrame download metric persistence failed", error);
+        }
+      },
+      onDownloadOutcome,
+      statImpl: options.statImpl ?? stat,
+    });
   });
   server.once("close", () => metricStore.close());
   return server;

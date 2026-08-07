@@ -5,12 +5,24 @@ import { dirname } from "node:path";
 const ACTIVE_DIGEST_RETENTION_MS = 45 * 24 * 60 * 60 * 1_000;
 const AGGREGATE_RETENTION_MS = 730 * 24 * 60 * 60 * 1_000;
 
-export type MetricName = "completed_exe_responses" | "opt_in_active_installations" | "version_adoption";
+export type DownloadKind = "exe" | "checksum";
+export type DownloadOutcome = "completed" | "failed" | "interrupted";
+export type DownloadDeliveryCounts = Record<"started" | DownloadOutcome, number>;
+export type DownloadDeliverySummary = Record<DownloadKind, DownloadDeliveryCounts>;
+
+export type MetricName =
+  | "completed_exe_responses"
+  | "opt_in_active_installations"
+  | "version_adoption"
+  | `download_${DownloadKind}_${"started" | DownloadOutcome}`;
 
 export type MetricStore = {
   recordCompletedDownload: (version: string, at: number) => void;
+  recordDownloadStarted: (kind: DownloadKind, version: string, at: number) => void;
+  recordDownloadOutcome: (kind: DownloadKind, outcome: DownloadOutcome, version: string, at: number) => void;
   recordActiveInstallation: (digest: string, version: string, at: number) => boolean;
   readDailyCount: (day: string, metric: MetricName, version?: string) => number;
+  readDownloadDelivery: (day: string) => DownloadDeliverySummary;
   cleanup: (at: number) => void;
   close: () => void;
 };
@@ -70,9 +82,22 @@ export function createMetricStore(databasePath: string): MetricStore {
     deleteAggregates.run(utcDay(at - AGGREGATE_RETENTION_MS));
   }
 
+  function readDailyCount(day: string, metric: MetricName, version = ""): number {
+    const row = readCount.get(day, metric, version, version) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   return {
     recordCompletedDownload(version, at) {
       increment.run(utcDay(at), "completed_exe_responses", version);
+      cleanup(at);
+    },
+    recordDownloadStarted(kind, version, at) {
+      increment.run(utcDay(at), `download_${kind}_started`, version);
+      cleanup(at);
+    },
+    recordDownloadOutcome(kind, outcome, version, at) {
+      increment.run(utcDay(at), `download_${kind}_${outcome}`, version);
       cleanup(at);
     },
     recordActiveInstallation(digest, version, at) {
@@ -88,8 +113,16 @@ export function createMetricStore(databasePath: string): MetricStore {
       return inserted;
     },
     readDailyCount(day, metric, version = "") {
-      const row = readCount.get(day, metric, version, version) as { count?: number } | undefined;
-      return Number(row?.count ?? 0);
+      return readDailyCount(day, metric, version);
+    },
+    readDownloadDelivery(day) {
+      const readKind = (kind: DownloadKind): DownloadDeliveryCounts => ({
+        started: readDailyCount(day, `download_${kind}_started`),
+        completed: readDailyCount(day, `download_${kind}_completed`),
+        failed: readDailyCount(day, `download_${kind}_failed`),
+        interrupted: readDailyCount(day, `download_${kind}_interrupted`),
+      });
+      return { exe: readKind("exe"), checksum: readKind("checksum") };
     },
     cleanup,
     close() {
