@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -48,6 +48,7 @@ type ServerOptions = {
   measurementId?: string;
   apiSecret?: string;
   telemetryHashSecret?: string;
+  alertCheckToken?: string;
   fetchImpl?: FetchLike;
   now?: () => number;
   metricsDatabasePath?: string;
@@ -74,6 +75,16 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.end(`${JSON.stringify(value)}\n`);
+}
+
+function hasValidBearerToken(request: IncomingMessage, expectedToken: string): boolean {
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith("Bearer ")) {
+    return false;
+  }
+  const supplied = Buffer.from(authorization.slice("Bearer ".length), "utf8");
+  const expected = Buffer.from(expectedToken, "utf8");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 function canonicalRedirectLocation(request: IncomingMessage, requestUrl: URL): string | null {
@@ -350,6 +361,7 @@ export function createProductionServer(options: ServerOptions): Server {
   const metricsDatabasePath = options.metricsDatabasePath ?? ":memory:";
   const metricsPersistenceConfigured = metricsDatabasePath !== ":memory:";
   const metricStore = options.metricStore ?? createMetricStore(metricsDatabasePath);
+  const alertCheckToken = options.alertCheckToken || undefined;
   let heartbeatWindowStartedAt = now();
   let heartbeatWindowCount = 0;
 
@@ -415,6 +427,35 @@ export function createProductionServer(options: ServerOptions): Server {
         metricsPersistenceConfigured,
         downloadDelivery: { day, ...metricStore.readDownloadDelivery(day) },
       });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/ops/download-delivery-alert-check" && method === "GET") {
+      if (!alertCheckToken) {
+        sendJson(response, 404, { error: "not_found" });
+        return;
+      }
+      if (!hasValidBearerToken(request, alertCheckToken)) {
+        response.setHeader("WWW-Authenticate", "Bearer");
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+
+      const day = new Date(now() - 24 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+      try {
+        const delivery = metricStore.readDownloadDelivery(day);
+        const failed = delivery.exe.failed + delivery.checksum.failed;
+        const interrupted = delivery.exe.interrupted + delivery.checksum.interrupted;
+        const alert = failed > 0 || interrupted > 0;
+        sendJson(response, alert ? 503 : 200, {
+          status: alert ? "alert" : "ok",
+          day,
+          failed,
+          interrupted,
+        });
+      } catch {
+        sendJson(response, 503, { status: "check_failed" });
+      }
       return;
     }
 
@@ -506,6 +547,7 @@ function startProductionServer(): void {
     measurementId: process.env.GA_MEASUREMENT_ID,
     apiSecret: process.env.GA_API_SECRET,
     telemetryHashSecret: process.env.TELEMETRY_HASH_SECRET,
+    alertCheckToken: process.env.FOLLOWFRAME_ALERT_CHECK_TOKEN,
     metricsDatabasePath: process.env.METRICS_DB_PATH ?? "/app/data/followframe-metrics.sqlite",
   });
   productionServer.listen(port, "0.0.0.0", () => {
