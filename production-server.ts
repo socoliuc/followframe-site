@@ -493,7 +493,15 @@ export function createProductionServer(options: ServerOptions): Server {
       if (analyticsConfigured) {
         const clientId = analyticsClientId(payload.installationId, options.telemetryHashSecret!);
         const digest = telemetryDigest(payload.installationId, options.telemetryHashSecret!);
-        if (metricStore.recordActiveInstallation(digest, payload.version, now())) {
+        let firstActiveHeartbeat: boolean;
+        try {
+          firstActiveHeartbeat = metricStore.recordActiveInstallation(digest, payload.version, now());
+        } catch (error) {
+          console.error("FollowFrame active-use metric persistence failed", error);
+          sendJson(response, 503, { error: "telemetry_unavailable" });
+          return;
+        }
+        if (firstActiveHeartbeat) {
           emitAnalytics(clientId, "app_active", {
             app_version: payload.version,
             operating_system: "Windows",
