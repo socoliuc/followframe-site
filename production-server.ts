@@ -421,12 +421,19 @@ export function createProductionServer(options: ServerOptions): Server {
 
     if (requestUrl.pathname === "/api/health" && method === "GET") {
       const day = new Date(now()).toISOString().slice(0, 10);
-      sendJson(response, 200, {
-        status: "ok",
-        analyticsConfigured,
-        metricsPersistenceConfigured,
-        downloadDelivery: { day, ...metricStore.readDownloadDelivery(day) },
-      });
+      try {
+        sendJson(response, 200, {
+          status: "ok",
+          analyticsConfigured,
+          metricsPersistenceConfigured,
+          downloadDelivery: { day, ...metricStore.readDownloadDelivery(day) },
+        });
+      } catch {
+        sendJson(response, 503, {
+          status: "unavailable",
+          error: "metrics_unavailable",
+        });
+      }
       return;
     }
 
