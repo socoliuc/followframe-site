@@ -459,6 +459,7 @@ export function createProductionServer(options: ServerOptions): Server {
           day,
           failed,
           interrupted,
+          delivery,
         });
       } catch {
         sendJson(response, 503, { status: "check_failed" });
