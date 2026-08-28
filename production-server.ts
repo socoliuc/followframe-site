@@ -206,7 +206,7 @@ function cacheControlFor(pathname: string): string {
   if (/\/assets\/[^/]+-[A-Za-z0-9_-]+\.(?:css|js)$/.test(pathname)) {
     return "public, max-age=31536000, immutable";
   }
-  if (pathname.endsWith(".html") || pathname === "/") {
+  if (pathname.endsWith(".html") || pathname.endsWith("/")) {
     return "no-cache";
   }
   return "public, max-age=3600";
