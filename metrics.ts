@@ -7,22 +7,27 @@ const AGGREGATE_RETENTION_MS = 730 * 24 * 60 * 60 * 1_000;
 
 export type DownloadKind = "exe" | "checksum";
 export type DownloadOutcome = "completed" | "failed" | "interrupted";
+export type DownloadInterruptionPhase = "early" | "middle" | "late";
 export type DownloadDeliveryCounts = Record<"started" | DownloadOutcome, number>;
 export type DownloadDeliverySummary = Record<DownloadKind, DownloadDeliveryCounts>;
+export type DownloadInterruptionPhaseSummary = Record<DownloadInterruptionPhase, number>;
 
 export type MetricName =
   | "completed_exe_responses"
   | "opt_in_active_installations"
   | "version_adoption"
+  | `download_exe_interrupted_${DownloadInterruptionPhase}`
   | `download_${DownloadKind}_${"started" | DownloadOutcome}`;
 
 export type MetricStore = {
   recordCompletedDownload: (version: string, at: number) => void;
   recordDownloadStarted: (kind: DownloadKind, version: string, at: number) => void;
   recordDownloadOutcome: (kind: DownloadKind, outcome: DownloadOutcome, version: string, at: number) => void;
+  recordDownloadInterruptionPhase: (phase: DownloadInterruptionPhase, version: string, at: number) => void;
   recordActiveInstallation: (digest: string, version: string, at: number) => boolean;
   readDailyCount: (day: string, metric: MetricName, version?: string) => number;
   readDownloadDelivery: (day: string) => DownloadDeliverySummary;
+  readDownloadInterruptionPhases: (day: string) => DownloadInterruptionPhaseSummary;
   cleanup: (at: number) => void;
   close: () => void;
 };
@@ -100,6 +105,10 @@ export function createMetricStore(databasePath: string): MetricStore {
       increment.run(utcDay(at), `download_${kind}_${outcome}`, version);
       cleanup(at);
     },
+    recordDownloadInterruptionPhase(phase, version, at) {
+      increment.run(utcDay(at), `download_exe_interrupted_${phase}`, version);
+      cleanup(at);
+    },
     recordActiveInstallation(digest, version, at) {
       const day = utcDay(at);
       const result = insertActive.run(day, digest, version, at);
@@ -123,6 +132,13 @@ export function createMetricStore(databasePath: string): MetricStore {
         interrupted: readDailyCount(day, `download_${kind}_interrupted`),
       });
       return { exe: readKind("exe"), checksum: readKind("checksum") };
+    },
+    readDownloadInterruptionPhases(day) {
+      return {
+        early: readDailyCount(day, "download_exe_interrupted_early"),
+        middle: readDailyCount(day, "download_exe_interrupted_middle"),
+        late: readDailyCount(day, "download_exe_interrupted_late"),
+      };
     },
     cleanup,
     close() {

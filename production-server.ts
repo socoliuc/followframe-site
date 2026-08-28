@@ -4,7 +4,13 @@ import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMetricStore, type DownloadKind, type DownloadOutcome, type MetricStore } from "./metrics.ts";
+import {
+  createMetricStore,
+  type DownloadInterruptionPhase,
+  type DownloadKind,
+  type DownloadOutcome,
+  type MetricStore,
+} from "./metrics.ts";
 
 const DEFAULT_PORT = 3000;
 const MAX_HEARTBEAT_BYTES = 2_048;
@@ -42,6 +48,13 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 type FetchLike = typeof fetch;
 type StatLike = (path: string) => Promise<Stats>;
+
+export function classifyDownloadInterruptionPhase(bytesRead: number, fileSize: number): DownloadInterruptionPhase {
+  const progress = fileSize > 0 ? bytesRead / fileSize : 0;
+  if (progress < 0.25) return "early";
+  if (progress < 0.75) return "middle";
+  return "late";
+}
 
 type ServerOptions = {
   staticRoot: string;
@@ -256,7 +269,14 @@ async function serveStaticFile({
   response: ServerResponse;
   staticRoot: string;
   onDownloadStarted: (kind: DownloadKind, version: string) => void;
-  onDownloadOutcome: (kind: DownloadKind, outcome: DownloadOutcome, fileName: string, version: string, fileSize: number) => void;
+  onDownloadOutcome: (
+    kind: DownloadKind,
+    outcome: DownloadOutcome,
+    fileName: string,
+    version: string,
+    fileSize: number,
+    phase?: DownloadInterruptionPhase,
+  ) => void;
   statImpl: StatLike;
 }): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -336,17 +356,20 @@ async function serveStaticFile({
   if (response.destroyed) {
     return;
   }
+  const stream = createReadStream(filePath);
   let terminalOutcomeRecorded = false;
   const recordOutcome = (outcome: DownloadOutcome) => {
     if (terminalOutcomeRecorded) return;
     terminalOutcomeRecorded = true;
-    onDownloadOutcome(kind, outcome, fileName, version, fileStat.size);
+    const phase = kind === "exe" && outcome === "interrupted"
+      ? classifyDownloadInterruptionPhase(stream.bytesRead, fileStat.size)
+      : undefined;
+    onDownloadOutcome(kind, outcome, fileName, version, fileStat.size, phase);
   };
 
   onDownloadStarted(kind, version);
   response.once("finish", () => recordOutcome("completed"));
   response.once("close", () => recordOutcome("interrupted"));
-  const stream = createReadStream(filePath);
   stream.once("error", (error) => {
     recordOutcome("failed");
     response.destroy(error);
@@ -398,9 +421,19 @@ export function createProductionServer(options: ServerOptions): Server {
     });
   }
 
-  function onDownloadOutcome(kind: DownloadKind, outcome: DownloadOutcome, fileName: string, version: string, fileSize: number): void {
+  function onDownloadOutcome(
+    kind: DownloadKind,
+    outcome: DownloadOutcome,
+    fileName: string,
+    version: string,
+    fileSize: number,
+    phase?: DownloadInterruptionPhase,
+  ): void {
     try {
       metricStore.recordDownloadOutcome(kind, outcome, version, now());
+      if (kind === "exe" && outcome === "interrupted" && phase) {
+        metricStore.recordDownloadInterruptionPhase(phase, version, now());
+      }
     } catch (error) {
       console.error("FollowFrame download metric persistence failed", error);
     }
@@ -460,6 +493,7 @@ export function createProductionServer(options: ServerOptions): Server {
           failed,
           interrupted,
           delivery,
+          exeInterruptionPhases: metricStore.readDownloadInterruptionPhases(day),
         });
       } catch {
         sendJson(response, 503, { status: "check_failed" });
